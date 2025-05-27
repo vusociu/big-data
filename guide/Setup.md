@@ -1,5 +1,10 @@
 # Hướng dẫn Thiết lập và Chạy Hệ thống
 
+## Private Key
+- Cần thêm api key của YouTube Data API v3 trong file .env
+YOUTUBE_API_KEY
+
+
 ## Yêu cầu
 - Docker và Docker Compose
 - Python 3.8+
