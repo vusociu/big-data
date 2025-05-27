@@ -115,7 +115,7 @@ class YouTubeProducer:
             logger.error(f"Error searching videos: {str(e)}")
             return []
 
-    def run(self, queries=None, video_ids=None, interval=60):
+    def run(self, queries=None, video_ids=None, interval=300):
         """
         Run continuous data collection
         """
