@@ -67,34 +67,15 @@ class YouTubeProducer:
             # Compile all video information
             video_info = {
                 'video_id': video_id,
-                'url': f"https://www.youtube.com/watch?v={video_id}",
                 'title': snippet['title'],
-                'description': snippet['description'],
-                'published_at': snippet['publishedAt'],
                 'channel_info': {
                     'id': channel_id,
-                    'title': snippet['channelTitle'],
-                    'subscriber_count': int(channel_stats.get('subscriberCount', 0)),
-                    'video_count': int(channel_stats.get('videoCount', 0)),
-                    'view_count': int(channel_stats.get('viewCount', 0))
+                    'title': snippet['channelTitle']
                 },
-                'thumbnails': snippet.get('thumbnails', {}),
-                'category_id': snippet.get('categoryId'),
-                'tags': snippet.get('tags', []),
-                'duration_seconds': duration_seconds,
-                'dimension': content_details.get('dimension'),
-                'definition': content_details.get('definition'),
-                'caption': content_details.get('caption') == 'true',
-                'licensed_content': content_details.get('licensedContent', False),
-                'projection': content_details.get('projection'),
-                'privacy_status': status.get('privacyStatus'),
-                'license': status.get('license'),
-                'embeddable': status.get('embeddable', False),
-                'topic_categories': topic_details.get('topicCategories', []),
+                'published_at': snippet['publishedAt'],
                 'statistics': {
                     'view_count': int(statistics.get('viewCount', 0)),
-                    'like_count': int(statistics.get('likeCount', 0)),
-                    'favorite_count': int(statistics.get('favoriteCount', 0))
+                    'like_count': int(statistics.get('likeCount', 0))
                 },
                 'timestamp': datetime.now().isoformat()
             }
@@ -134,7 +115,7 @@ class YouTubeProducer:
             logger.error(f"Error searching videos: {str(e)}")
             return []
 
-    def run(self, queries=None, video_ids=None, interval=3600):
+    def run(self, queries=None, video_ids=None, interval=60):
         """
         Run continuous data collection
         """
@@ -189,11 +170,41 @@ if __name__ == "__main__":
     
     # Example: Search queries
     search_queries = [
-        'Python programming',
-        'Data Science',
-        'Machine Learning',
-        'C++ Programming',
-        'Remix'
+        "Python programming",
+        "Data Science",
+        "Machine Learning",
+        "C++ Programming",
+        "Remix",
+        "JavaScript tutorials",
+        "Web development 2025",
+        "React.js for beginners",
+        "Best Python libraries for data analysis",
+        "Kubernetes explained",
+        "Neural networks simplified",
+        "Statistics for data science",
+        "Top machine learning projects in 2025",
+        "Data science interview questions",
+        "Deep learning with TensorFlow",
+        "Latest AI trends",
+        "Cloud computing basics",
+        "Quantum computing explained",
+        "Blockchain technology tutorial",
+        "Best free coding resources",
+        "Using Docker for development",
+        "Flutter app development",
+        "Django vs Flask",
+        "ASP.NET core tutorial",
+        "Remix vs Next.js comparison",
+        "Best coding channels on YouTube",
+        "Funny programming memes",
+        "Coding livestreams",
+        "Top 10 programming documentaries",
+        "Code challenges for developers",
+        "How to become a software engineer",
+        "Time management for developers",
+        "Tech jobs with no degree required",
+        "Freelancing as a programmer",
+        "Tech industry insights",
     ]
     
     # Run producer with either specific videos or search queries

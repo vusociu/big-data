@@ -1,19 +1,43 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, window, avg, count
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 import os
+import sys
+import logging
+import findspark
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+try:
+    logger.info("Initializing Spark...")
+    findspark.init()
+    logger.info("Spark initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing Spark: {str(e)}")
+    raise
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col, window, avg, count, when
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 from pymongo import MongoClient
 from datetime import datetime
+
+# Set environment variables for Spark
+os.environ['PYSPARK_PYTHON'] = sys.executable
+os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
 
 # Define schema for YouTube statistics
 youtube_schema = StructType([
     StructField("video_id", StringType(), True),
     StructField("title", StringType(), True),
-    StructField("channel_id", StringType(), True),
-    StructField("channel_title", StringType(), True),
-    StructField("publish_date", StringType(), True),
-    StructField("view_count", IntegerType(), True),
-    StructField("like_count", IntegerType(), True),
+    StructField("channel_info", StructType([
+        StructField("id", StringType(), True),
+        StructField("title", StringType(), True)
+    ]), True),
+    StructField("published_at", StringType(), True),
+    StructField("statistics", StructType([
+        StructField("view_count", IntegerType(), True),
+        StructField("like_count", IntegerType(), True)
+    ]), True),
     StructField("timestamp", TimestampType(), True)
 ])
 
@@ -22,20 +46,49 @@ class YouTubeProcessor:
         """
         Initialize Spark session and MongoDB client
         """
-        self.spark = SparkSession.builder \
-            .appName("YouTubeStatsProcessor") \
-            .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.0") \
-            .getOrCreate()
+        try:
+            logger.info("Setting up environment variables...")
+            # Set environment variables
+            os.environ['PYSPARK_PYTHON'] = sys.executable
+            os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
+            
+            logger.info("Creating Spark session...")
+            # Initialize Spark with proper configuration
+            self.spark = SparkSession.builder \
+                .appName("YouTubeStatsProcessor") \
+                .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.0") \
+                .config("spark.driver.host", "localhost") \
+                .config("spark.driver.bindAddress", "localhost") \
+                .config("spark.ui.enabled", "false") \
+                .config("spark.driver.extraJavaOptions", "-Xss4M") \
+                .config("spark.driver.memory", "4g") \
+                .config("spark.executor.memory", "4g") \
+                .master("local[*]") \
+                .getOrCreate()
+            
+            logger.info("Spark session created successfully")
+            
+            # Set log level
+            self.spark.sparkContext.setLogLevel("ERROR")
+            logger.info("Spark log level set to ERROR")
 
-        # Initialize MongoDB client
-        self.mongo_client = MongoClient(mongo_uri)
-        self.db = self.mongo_client.youtube_analytics
-        self.kafka_bootstrap_servers = kafka_bootstrap_servers
+            logger.info("Initializing MongoDB client...")
+            # Initialize MongoDB client
+            self.mongo_client = MongoClient(mongo_uri)
+            self.db = self.mongo_client.youtube_analytics
+            self.kafka_bootstrap_servers = kafka_bootstrap_servers
 
-        # Create indexes for better query performance
-        self.db.video_stats.create_index([("timestamp", -1)])
-        self.db.channel_stats.create_index([("channel_id", 1), ("window_start", -1)])
-        self.db.channel_stats.create_index([("timestamp", -1)])
+            # Create indexes for better query performance
+            self.db.video_stats.create_index([("timestamp", -1)])
+            self.db.channel_stats.create_index([("channel_id", 1), ("window_start", -1)])
+            self.db.channel_stats.create_index([("timestamp", -1)])
+            logger.info("MongoDB client initialized successfully")
+        
+        except Exception as e:
+            logger.error(f"Error in YouTubeProcessor initialization: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error details: {str(e)}")
+            raise
 
     def process_youtube_stats(self):
         """
@@ -54,10 +107,20 @@ class YouTubeProcessor:
             from_json(col("value").cast("string"), youtube_schema).alias("data")
         ).select("data.*")
 
-        # Calculate engagement metrics (now based only on likes)
+        # Calculate engagement metrics
         stats_df = parsed_df \
+            .select(
+                "video_id",
+                "title",
+                col("channel_info.id").alias("channel_id"),
+                col("channel_info.title").alias("channel_title"),
+                col("published_at").alias("publish_date"),
+                col("statistics.view_count").alias("view_count"),
+                col("statistics.like_count").alias("like_count"),
+                "timestamp"
+            ) \
             .withColumn("engagement_ratio", 
-                       col("like_count") / col("view_count")) \
+                        when(col("view_count") > 0, col("like_count") / col("view_count")).otherwise(0.0)) \
             .withWatermark("timestamp", "1 hour")
 
         # Save raw video stats

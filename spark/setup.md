@@ -22,6 +22,7 @@
     + Vào thư mục `bin`, copy toàn bộ vào thư mục `spark-3.5.3-bin-hadoop3\bin`. Bỏ qua những file đã tồn tại
 - Thêm các Variables tương tự phía trên:
     + System Variables:
+    C:\Python313\python.exe
         `PYSPARK_PYTHON` : Path đến file python, VD `D:\Applications\python\Python313\python.exe`
         `PYSPARK_DRIVER_PYTHON` : Path đến file python, VD `D:\Applications\python\Python313\python.exe` 
         `SPARK_HOME` : Path đến thư mục Spark, VD `D:\Applications\spark-3.5.3-bin-hadoop3`
@@ -30,7 +31,6 @@
 
 # IV. Chạy chương trình:
 Mở Terminal:
-    `git clone https://github.com/HieuNT-2306/BigDataProject/`
     `cd BigDataProject/big-data-project/pyspark`
-    `python kafka_to_spark.py`
+    `python youtube_processsor.py`
 
