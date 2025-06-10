@@ -9,7 +9,6 @@ import isodate
 
 from dotenv import load_dotenv
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -32,7 +31,7 @@ class YouTubeProducer:
         Get detailed information for a specific video
         """
         try:
-            # Get video details including content details and statistics
+
             video_request = self.youtube.videos().list(
                 part="snippet,contentDetails,statistics,topicDetails,status",
                 id=video_id
@@ -50,7 +49,7 @@ class YouTubeProducer:
             topic_details = video_data.get('topicDetails', {})
             status = video_data.get('status', {})
 
-            # Get channel details
+
             channel_id = snippet['channelId']
             channel_request = self.youtube.channels().list(
                 part="snippet,statistics",
@@ -60,29 +59,50 @@ class YouTubeProducer:
             channel_data = channel_response['items'][0] if channel_response['items'] else {}
             channel_stats = channel_data.get('statistics', {})
 
-            # Convert duration to seconds
+
             duration = content_details.get('duration', 'PT0S')
             duration_seconds = int(isodate.parse_duration(duration).total_seconds())
 
-            # Compile all video information
+
             video_info = {
                 'video_id': video_id,
                 'title': snippet['title'],
+                'description': snippet.get('description', ''),
+                'url': f'https://www.youtube.com/watch?v={video_id}',
                 'channel_info': {
                     'id': channel_id,
-                    'title': snippet['channelTitle']
+                    'title': snippet['channelTitle'],
+                    'subscriber_count': int(channel_stats.get('subscriberCount', 0)),
+                    'video_count': int(channel_stats.get('videoCount', 0)),
+                    'view_count': int(channel_stats.get('viewCount', 0))
                 },
                 'published_at': snippet['publishedAt'],
+                'thumbnails': snippet.get('thumbnails', {}),
+                'category_id': snippet.get('categoryId', ''),
+                'tags': snippet.get('tags', []),
+                'duration_seconds': duration_seconds,
+                'dimension': content_details.get('dimension', ''),
+                'definition': content_details.get('definition', ''),
+                'caption': content_details.get('caption', ''),
+                'licensed_content': content_details.get('licensedContent', False),
+                'projection': content_details.get('projection', ''),
+                'privacy_status': status.get('privacyStatus', ''),
+                'license': status.get('license', ''),
+                'embeddable': status.get('embeddable', True),
+                'topic_categories': topic_details.get('topicCategories', []),
                 'statistics': {
                     'view_count': int(statistics.get('viewCount', 0)),
-                    'like_count': int(statistics.get('likeCount', 0))
+                    'like_count': int(statistics.get('likeCount', 0)),
+                    'comment_count': int(statistics.get('commentCount', 0)),
+                    'favorite_count': int(statistics.get('favoriteCount', 0))
                 },
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
             }
 
-            # Send to Kafka topic
-            self.producer.send('youtube_stats', value=video_info)
-            logger.info(f"Sent detailed statistics for video: {video_id}")
+
+            self.producer.send('youtube_raw_stats', value=video_info)
+            self.producer.send('youtube_stats_for_processing', value=video_info)
+            logger.info(f"Sent statistics for video {video_id} to both topics")
             return video_info
 
         except Exception as e:
@@ -99,7 +119,7 @@ class YouTubeProducer:
                 'q': query,
                 'type': 'video',
                 'maxResults': max_results,
-                'order': 'date'  # Get most recent videos
+                'order': 'date'
             }
             
             if published_after:
@@ -124,15 +144,14 @@ class YouTubeProducer:
 
         while True:
             try:
-                # Process specific video IDs
+
                 if video_ids:
                     for video_id in video_ids:
                         self.get_video_details(video_id)
-                        time.sleep(1)  # Respect API quota
+                        time.sleep(1)  
 
-                # Process search queries
                 if queries:
-                    # Get videos published in the last day
+
                     published_after = (
                         datetime.utcnow() - timedelta(days=1)
                     ).isoformat() + 'Z'
@@ -144,31 +163,28 @@ class YouTubeProducer:
                         )
                         for video_id in found_videos:
                             self.get_video_details(video_id)
-                            time.sleep(1)  # Respect API quota
+                            time.sleep(1)
 
                 logger.info(f"Sleeping for {interval} seconds before next collection cycle")
                 time.sleep(interval)
 
             except Exception as e:
                 logger.error(f"Error in collection cycle: {str(e)}")
-                time.sleep(60)  # Wait before retrying
+                time.sleep(60)
 
 if __name__ == "__main__":
     load_dotenv()
-    # Get API key from environment variable
+
     api_key = os.getenv('YOUTUBE_API_KEY')
     if not api_key:
         raise ValueError("YOUTUBE_API_KEY environment variable is required")
 
     producer = YouTubeProducer(api_key=api_key)
     
-    # Example: Monitor specific videos
-    video_ids = [
-        'dQw4w9WgXcQ',  # Example video ID
-        # Add more video IDs here
-    ]
+
+    video_ids = []
     
-    # Example: Search queries
+
     search_queries = [
         "Python programming",
         "Data Science",
@@ -207,5 +223,5 @@ if __name__ == "__main__":
         "Tech industry insights",
     ]
     
-    # Run producer with either specific videos or search queries
+
     producer.run(video_ids=video_ids, queries=search_queries) 

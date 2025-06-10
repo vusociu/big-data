@@ -4,7 +4,7 @@ import json
 # Kibana configuration
 KIBANA_URL = "http://localhost:5601"
 ELASTICSEARCH_URL = "http://localhost:9200"
-INDEX_PATTERN = "youtube_stats"
+INDEX_PATTERN = "youtube_analytics"
 
 # Headers for Kibana API requests
 headers = {
@@ -215,18 +215,15 @@ def create_dashboard(visualizations):
     return response.json()
 
 def main():
-    # Create index pattern
     print("Creating index pattern...")
-    # index_pattern = create_index_pattern()
+    index_pattern = create_index_pattern()
     
-    # Create visualizations
     print("Tạo top 10 video xu hướng")
     top_videos_viz = create_top_videos_visualization()
     
     print("Tạo xu hướng tương tác video theo thời gian")
     engagement_viz = create_engagement_ratio_visualization()
     
-    # Create dashboard with both visualizations
     print("Tạo dashboard")
     dashboard = create_dashboard([top_videos_viz, engagement_viz])
     

@@ -22,36 +22,31 @@ class YouTubeConsumer:
             mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
 
         self.consumer = KafkaConsumer(
-            'youtube_stats',
+            'youtube_raw_stats',
             bootstrap_servers=bootstrap_servers,
             value_deserializer=lambda x: json.loads(x.decode('utf-8')),
             auto_offset_reset='earliest',
             enable_auto_commit=True,
-            group_id='youtube_stats_group'
+            group_id='youtube_raw_stats_group'
         )
 
-        # Initialize MongoDB client
         self.mongo_client = MongoClient(mongo_uri)
         self.db = self.mongo_client.youtube_analytics
 
-        # Create indexes if they don't exist
         self._ensure_indexes()
 
     def _ensure_indexes(self):
         """
         Create necessary indexes in MongoDB
         """
-        # Video stats indexes
         self.db.videos.create_index([("video_id", 1)], unique=True)
         self.db.videos.create_index([("timestamp", -1)])
         self.db.videos.create_index([("channel_info.id", 1)])
         self.db.videos.create_index([("statistics.view_count", -1)])
 
-        # Channel stats indexes
         self.db.channels.create_index([("channel_id", 1)], unique=True)
         self.db.channels.create_index([("subscriber_count", -1)])
 
-        # Video history indexes
         self.db.video_history.create_index([
             ("video_id", 1),
             ("timestamp", -1)
@@ -64,13 +59,10 @@ class YouTubeConsumer:
         try:
             data = message.value
             
-            # Update video document
             self._update_video(data)
             
-            # Update video history
             self._save_video_history(data)
             
-            # Update channel statistics
             self._update_channel(data)
             
             logger.info(f"Processed data for video: {data['video_id']}")
