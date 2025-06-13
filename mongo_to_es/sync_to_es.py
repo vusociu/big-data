@@ -22,7 +22,7 @@ def convert_to_serializable(obj):
 def format_timestamp(timestamp_str):
     """Format timestamp string to standard format"""
     timestamp_formats = [
-        '%Y-%m-%dT%H:%M:%SZ',  #
+        '%Y-%m-%dT%H:%M:%SZ',
         '%Y-%m-%dT%H:%M:%S.%fZ',
         '%Y-%m-%dT%H:%M:%S', 
         '%Y-%m-%dT%H:%M:%S.%f' 
@@ -36,22 +36,100 @@ def format_timestamp(timestamp_str):
             continue
     return None
 
-def prepare_document(doc):
-    """Prepare MongoDB document for Elasticsearch"""
-    doc = {k: convert_to_serializable(v) for k, v in doc.items()}
-    
-    if isinstance(doc.get('timestamp'), str):
-        formatted_timestamp = format_timestamp(doc['timestamp'])
-        if not formatted_timestamp:
-            return None
-        doc['timestamp'] = formatted_timestamp
+def prepare_video_document(doc):
+    """Prepare video document for Elasticsearch"""
+    try:
+        doc = {k: convert_to_serializable(v) for k, v in doc.items()}
+        
+        # Format timestamps
+        for field in ['timestamp', 'window_start', 'window_end', 'publish_date']:
+            if isinstance(doc.get(field), str):
+                formatted_timestamp = format_timestamp(doc[field])
+                if formatted_timestamp:
+                    doc[field] = formatted_timestamp
 
-    if '_id' in doc:
-        del doc['_id']
+        if '_id' in doc:
+            del doc['_id']
 
-    return doc
+        # Ensure all required fields are present
+        required_fields = {
+            'video_id': str,
+            'title': str,
+            'channel_id': str,
+            'channel_title': str,
+            'publish_date': str,
+            'views_growth_rate': float,
+            'likes_growth_rate': float,
+            'comments_growth_rate': float,
+            'total_views': int,
+            'total_likes': int,
+            'total_comments': int,
+            'engagement_rate': float,
+            'views_per_hour': float,
+            'likes_per_hour': float,
+            'comments_per_hour': float,
+            'window_start': str,
+            'window_end': str,
+            'timestamp': str
+        }
 
-def get_missing_documents(mongo_collection, es_client, index_name, batch_size=1000):
+        for field, field_type in required_fields.items():
+            if field not in doc:
+                return None
+            try:
+                doc[field] = field_type(doc[field])
+            except (ValueError, TypeError):
+                return None
+
+        return doc
+    except Exception as e:
+        logger.error(f"Error preparing video document: {str(e)}")
+        return None
+
+def prepare_channel_document(doc):
+    """Prepare channel document for Elasticsearch"""
+    try:
+        doc = {k: convert_to_serializable(v) for k, v in doc.items()}
+        
+        # Format timestamps
+        for field in ['timestamp', 'window_start', 'window_end', 'publish_date']:
+            if isinstance(doc.get(field), str):
+                formatted_timestamp = format_timestamp(doc[field])
+                if formatted_timestamp:
+                    doc[field] = formatted_timestamp
+
+        if '_id' in doc:
+            del doc['_id']
+
+        # Ensure all required fields are present
+        required_fields = {
+            'channel_id': str,
+            'channel_title': str,
+            'avg_engagement': float,
+            'avg_likes': float,
+            'avg_views': float,
+            'avg_comments': float,
+            'video_count': int,
+            'window_start': str,
+            'window_end': str,
+            'timestamp': str,
+            'publish_date': str
+        }
+
+        for field, field_type in required_fields.items():
+            if field not in doc:
+                return None
+            try:
+                doc[field] = field_type(doc[field])
+            except (ValueError, TypeError):
+                return None
+
+        return doc
+    except Exception as e:
+        logger.error(f"Error preparing channel document: {str(e)}")
+        return None
+
+def get_missing_documents(mongo_collection, es_client, index_name, doc_preparer, batch_size=1000):
     """Find documents that exist in MongoDB but not in Elasticsearch"""
     missing_docs = []
     processed = 0
@@ -62,11 +140,11 @@ def get_missing_documents(mongo_collection, es_client, index_name, batch_size=10
         if processed % 1000 == 0:
             logger.info(f"Processed {processed}/{total_docs} documents")
 
-        prepared_doc = prepare_document(doc)
+        prepared_doc = doc_preparer(doc)
         if not prepared_doc:
             continue
 
-        doc_id = f"{prepared_doc['video_id']}_{prepared_doc['timestamp']}"
+        doc_id = f"{prepared_doc['video_id']}_{prepared_doc['window_start']}" if 'video_id' in prepared_doc else f"{prepared_doc['channel_id']}_{prepared_doc['window_start']}"
         
         try:
             if not es_client.exists(index=index_name, id=doc_id):
@@ -88,59 +166,152 @@ def sync_to_elasticsearch():
 
         es_client = Elasticsearch(["http://localhost:9200"])
 
-        index_name = "youtube_stats"
-        if not es_client.indices.exists(index=index_name):
+        # Sync video analytics
+        video_index = "video_analytics"
+        if not es_client.indices.exists(index=video_index):
             es_client.indices.create(
-                index=index_name,
+                index=video_index,
                 body={
-                    "mappings": {
-                        "properties": {
-                            "timestamp": {
-                                "type": "date",
-                                "format": "strict_date_optional_time||epoch_millis"
-                            },
-                            "video_id": {"type": "keyword"},
-                            "title": {"type": "text"},
-                            "views": {"type": "long"},
-                            "likes": {"type": "long"},
-                            "comments": {"type": "long"},
-                            "channel_info": {
-                                "properties": {
-                                    "id": {"type": "keyword"},
-                                    "title": {"type": "text"},
-                                    "subscriber_count": {"type": "long"},
-                                    "video_count": {"type": "long"},
-                                    "view_count": {"type": "long"}
+                    "settings": {
+                        "index": {
+                            "number_of_shards": 1,
+                            "number_of_replicas": 0
+                        },
+                        "analysis": {
+                            "analyzer": {
+                                "video_analyzer": {
+                                    "type": "custom",
+                                    "tokenizer": "standard",
+                                    "filter": ["lowercase", "asciifolding"]
                                 }
                             }
+                        }
+                    },
+                    "mappings": {
+                        "properties": {
+                            "video_id": {"type": "keyword"},
+                            "title": {
+                                "type": "text",
+                                "analyzer": "video_analyzer",
+                                "fields": {
+                                    "keyword": {
+                                        "type": "keyword",
+                                        "ignore_above": 256
+                                    }
+                                }
+                            },
+                            "channel_id": {"type": "keyword"},
+                            "channel_title": {"type": "text"},
+                            "publish_date": {"type": "date"},
+                            "views_growth_rate": {"type": "float"},
+                            "likes_growth_rate": {"type": "float"},
+                            "comments_growth_rate": {"type": "float"},
+                            "total_views": {"type": "long"},
+                            "total_likes": {"type": "long"},
+                            "total_comments": {"type": "long"},
+                            "engagement_rate": {"type": "float"},
+                            "views_per_hour": {"type": "float"},
+                            "likes_per_hour": {"type": "float"},
+                            "comments_per_hour": {"type": "float"},
+                            "window_start": {"type": "date"},
+                            "window_end": {"type": "date"},
+                            "timestamp": {"type": "date"}
                         }
                     }
                 }
             )
 
-        mongo_count = db.video_stats.count_documents({})
-        logger.info(f"Total documents in MongoDB: {mongo_count}")
+        # Sync channel analytics
+        channel_index = "youtube_analytics"
+        if not es_client.indices.exists(index=channel_index):
+            es_client.indices.create(
+                index=channel_index,
+                body={
+                    "settings": {
+                        "index": {
+                            "number_of_shards": 1,
+                            "number_of_replicas": 0
+                        },
+                        "analysis": {
+                            "analyzer": {
+                                "channel_analyzer": {
+                                    "type": "custom",
+                                    "tokenizer": "standard",
+                                    "filter": ["lowercase", "asciifolding"]
+                                }
+                            }
+                        }
+                    },
+                    "mappings": {
+                        "properties": {
+                            "channel_id": {"type": "keyword"},
+                            "channel_title": {
+                                "type": "text",
+                                "analyzer": "channel_analyzer",
+                                "fields": {
+                                    "keyword": {
+                                        "type": "keyword",
+                                        "ignore_above": 256
+                                    }
+                                }
+                            },
+                            "avg_engagement": {"type": "float"},
+                            "avg_likes": {"type": "float"},
+                            "avg_views": {"type": "float"},
+                            "avg_comments": {"type": "float"},
+                            "video_count": {"type": "integer"},
+                            "window_start": {"type": "date"},
+                            "window_end": {"type": "date"},
+                            "timestamp": {"type": "date"},
+                            "publish_date": {"type": "date"}
+                        }
+                    }
+                }
+            )
 
-        es_count = es_client.count(index=index_name)['count']
-        logger.info(f"Total documents in Elasticsearch: {es_count}")
+        # Sync video analytics
+        video_stats_count = db.video_history.count_documents({})
+        logger.info(f"Total video history documents in MongoDB: {video_stats_count}")
 
-        if mongo_count > es_count:
-            logger.info("Finding missing documents...")
-            missing_docs = get_missing_documents(db.video_stats, es_client, index_name)
+        video_es_count = es_client.count(index=video_index)['count']
+        logger.info(f"Total documents in video_analytics index: {video_es_count}")
+
+        if video_stats_count > 0:
+            logger.info("Finding missing video documents...")
+            missing_video_docs = get_missing_documents(db.video_history, es_client, video_index, prepare_video_document)
             
-            if missing_docs:
-                logger.info(f"Found {len(missing_docs)} missing documents. Starting bulk index...")
-                success, failed = bulk(es_client, missing_docs, raise_on_error=False)
-                logger.info(f"Bulk indexing completed. Success: {success}, Failed: {len(failed) if failed else 0}")
+            if missing_video_docs:
+                logger.info(f"Found {len(missing_video_docs)} missing video documents. Starting bulk index...")
+                success, failed = bulk(es_client, missing_video_docs, raise_on_error=False)
+                logger.info(f"Video bulk indexing completed. Success: {success}, Failed: {len(failed) if failed else 0}")
             else:
-                logger.info("No missing documents found")
-        else:
-            logger.info("No sync needed - Elasticsearch is up to date")
+                logger.info("No missing video documents found")
 
-        es_client.indices.refresh(index=index_name)
+        # Sync channel analytics
+        channel_stats_count = db.channels.count_documents({})
+        logger.info(f"Total channel documents in MongoDB: {channel_stats_count}")
+
+        channel_es_count = es_client.count(index=channel_index)['count']
+        logger.info(f"Total documents in youtube_analytics index: {channel_es_count}")
+
+        if channel_stats_count > 0:
+            logger.info("Finding missing channel documents...")
+            missing_channel_docs = get_missing_documents(db.channels, es_client, channel_index, prepare_channel_document)
+            
+            if missing_channel_docs:
+                logger.info(f"Found {len(missing_channel_docs)} missing channel documents. Starting bulk index...")
+                success, failed = bulk(es_client, missing_channel_docs, raise_on_error=False)
+                logger.info(f"Channel bulk indexing completed. Success: {success}, Failed: {len(failed) if failed else 0}")
+            else:
+                logger.info("No missing channel documents found")
+
+        # Refresh indices
+        es_client.indices.refresh(index=video_index)
+        es_client.indices.refresh(index=channel_index)
         
-        final_es_count = es_client.count(index=index_name)['count']
-        logger.info(f"Final document count in Elasticsearch: {final_es_count}")
+        final_video_count = es_client.count(index=video_index)['count']
+        final_channel_count = es_client.count(index=channel_index)['count']
+        logger.info(f"Final document counts - Video analytics: {final_video_count}, Channel analytics: {final_channel_count}")
 
     except Exception as e:
         logger.error(f"Error in sync process: {str(e)}")
